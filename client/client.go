@@ -291,6 +291,114 @@ func deriveKeys(sourceKey []byte, purpose string) (encKey []byte, macKey []byte,
 
 	return encKeyFull[:16], macKeyFull[:16], nil
 }
+
+func (userdata *User) refreshAccessKeys(access *FileAccess) error {
+	if access.IsOwner {
+		return nil // Owner siempre tiene claves actualizadas
+	}
+
+	// Cargar la invitación
+	signedInvBytes, ok := userlib.DatastoreGet(access.InvitationUUID)
+	if !ok {
+		return errors.New("invitation no longer exists - access may have been revoked")
+	}
+
+	var signedInv SignedInvitation
+	err := json.Unmarshal(signedInvBytes, &signedInv)
+	if err != nil {
+		return errors.New("corrupted invitation data")
+	}
+
+	// Verificar firma del sender
+	senderVerifyKey, ok := userlib.KeystoreGet(access.SenderUsername + "/ds")
+	if !ok {
+		return errors.New("sender no longer exists")
+	}
+
+	err = userlib.DSVerify(senderVerifyKey, signedInv.EncryptedData, signedInv.Signature)
+	if err != nil {
+		return errors.New("invalid invitation signature - may have been tampered")
+	}
+
+	// Descifrar invitación
+	invitationBytes, err := hybridDecrypt(userdata.DecKey, signedInv.EncryptedData)
+	if err != nil {
+		return errors.New("could not decrypt invitation - access may have been revoked")
+	}
+
+	var invitation Invitation
+	err = json.Unmarshal(invitationBytes, &invitation)
+	if err != nil {
+		return errors.New("corrupted invitation")
+	}
+
+	// Actualizar claves en el access
+	access.FileMetaUUID = invitation.FileMetaUUID
+	access.SymKey = invitation.SymKey
+	access.MacKey = invitation.MacKey
+
+	return nil
+}
+
+// getFileAccess - Obtiene y descifra el FileAccess, refrescando claves si es necesario
+func (userdata *User) getFileAccess(filename string) (*FileAccess, uuid.UUID, error) {
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
+	if !ok {
+		return nil, uuid.Nil, errors.New("file not found")
+	}
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
+	if err != nil {
+		return nil, uuid.Nil, errors.New("file access corrupted")
+	}
+
+	var access FileAccess
+	err = json.Unmarshal(accessBytes, &access)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	// Si no es owner, refrescar claves desde la invitación
+	if !access.IsOwner {
+		err = userdata.refreshAccessKeys(&access)
+		if err != nil {
+			return nil, uuid.Nil, err
+		}
+	}
+
+	return &access, accessUUID, nil
+}
+
+// saveFileAccess - Guarda el FileAccess cifrado
+func (userdata *User) saveFileAccess(access *FileAccess, accessUUID uuid.UUID) error {
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return err
+	}
+
+	accessBytes, err := json.Marshal(access)
+	if err != nil {
+		return err
+	}
+
+	encryptedAccess, err := encryptAndMAC(accessBytes, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(accessUUID, encryptedAccess)
+	return nil
+}
 // NOTE: The following methods have toy (insecure!) implementations.
 //===========================================================================================================
 //MAIN FUNCTIONS
