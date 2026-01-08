@@ -666,29 +666,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 
 // LoadFile - Carga el contenido de un archivo
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	// Obtener FileAccess
-	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
-	if err != nil {
-		return nil, err
-	}
-
-	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
-	if !ok {
-		return nil, errors.New("file not found")
-	}
-
-	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
-	if err != nil {
-		return nil, err
-	}
-
-	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var access FileAccess
-	err = json.Unmarshal(accessBytes, &access)
+	access, _, err := userdata.getFileAccess(filename)
 	if err != nil {
 		return nil, err
 	}
