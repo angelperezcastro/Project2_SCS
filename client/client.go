@@ -786,31 +786,17 @@ func (userdata *User) createNewFile(accessUUID uuid.UUID, content []byte) error 
 
 	userlib.DatastoreSet(metaUUID, encryptedMeta)
 
-	// Crear FileAccess
+	// Crear FileAccess (como owner)
 	access := FileAccess{
-		FileMetaUUID: metaUUID,
-		SymKey:       fileSymKey,
-		MacKey:       fileMacKey,
+		IsOwner:        true,
+		FileMetaUUID:   metaUUID,
+		SymKey:         fileSymKey,
+		MacKey:         fileMacKey,
+		InvitationUUID: uuid.Nil,
+		SenderUsername: "",
 	}
 
-	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
-	if err != nil {
-		return err
-	}
-
-	accessBytes, err := json.Marshal(access)
-	if err != nil {
-		return err
-	}
-
-	encryptedAccess, err := encryptAndMAC(accessBytes, accessEncKey, accessMacKey)
-	if err != nil {
-		return err
-	}
-
-	userlib.DatastoreSet(accessUUID, encryptedAccess)
-
-	return nil
+	return userdata.saveFileAccess(&access, accessUUID)
 }
 
 // overwriteFile - Sobrescribe un archivo existente
