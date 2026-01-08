@@ -310,10 +310,51 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	return &userdata, nil
 }
 
+// GetUser - Obtiene un usuario existente
 func GetUser(username string, password string) (userdataptr *User, err error) {
+	// Derivar SourceKey del password
+	sourceKey := userlib.Argon2Key([]byte(password), []byte(username), 16)
+
+	// Derivar claves
+	userEncKey, userMacKey, err := deriveKeys(sourceKey, "user-struct")
+	if err != nil {
+		return nil, err
+	}
+
+	// Calcular UUID
+	userUUID, err := getUserUUID(username)
+	if err != nil {
+		return nil, err
+	}
+
+	// Obtener datos
+	encryptedUser, ok := userlib.DatastoreGet(userUUID)
+	if !ok {
+		return nil, errors.New("user does not exist")
+	}
+
+	// Verificar y descifrar
+	userBytes, err := decryptAndVerify(encryptedUser, userEncKey, userMacKey)
+	if err != nil {
+		return nil, errors.New("invalid credentials or data corrupted")
+	}
+
+	// Deserializar
 	var userdata User
-	userdataptr = &userdata
-	return userdataptr, nil
+	err = json.Unmarshal(userBytes, &userdata)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verificar username
+	if userdata.Username != username {
+		return nil, errors.New("data integrity check failed")
+	}
+
+	// Restaurar SourceKey
+	userdata.SourceKey = sourceKey
+
+	return &userdata, nil
 }
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
