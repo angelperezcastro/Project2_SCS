@@ -943,6 +943,173 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	return nil
 }
 
+// RevokeAccess - Revoca el acceso de un usuario a un archivo
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
+	// Cargar FileAccess
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
+	if err != nil {
+		return err
+	}
+
+	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
+	if !ok {
+		return errors.New("file not found")
+	}
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return err
+	}
+
+	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	var access FileAccess
+	err = json.Unmarshal(accessBytes, &access)
+	if err != nil {
+		return err
+	}
+
+	// Cargar FileMeta
+	encryptedMeta, ok := userlib.DatastoreGet(access.FileMetaUUID)
+	if !ok {
+		return errors.New("file metadata not found")
+	}
+
+	metaBytes, err := decryptAndVerify(encryptedMeta, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	var meta FileMeta
+	err = json.Unmarshal(metaBytes, &meta)
+	if err != nil {
+		return err
+	}
+
+	// Verificar que somos owner
+	if meta.OwnerUsername != userdata.Username {
+		return errors.New("only the owner can revoke access")
+	}
+
+	// Verificar que recipient tiene acceso
+	_, hasAccess := meta.DirectShares[recipientUsername]
+	if !hasAccess {
+		return errors.New("user does not have access")
+	}
+
+	// Generar nuevas claves
+	newSymKey := userlib.RandomBytes(16)
+	newMacKey := userlib.RandomBytes(16)
+
+	oldSymKey := access.SymKey
+	oldMacKey := access.MacKey
+
+	// Re-cifrar todos los bloques
+	currentUUID := meta.FirstBlockUUID
+	for currentUUID != uuid.Nil {
+		encryptedBlock, ok := userlib.DatastoreGet(currentUUID)
+		if !ok {
+			return errors.New("block not found")
+		}
+
+		blockBytes, err := decryptAndVerify(encryptedBlock, oldSymKey, oldMacKey)
+		if err != nil {
+			return err
+		}
+
+		var block FileBlock
+		err = json.Unmarshal(blockBytes, &block)
+		if err != nil {
+			return err
+		}
+
+		reEncryptedBlock, err := encryptAndMAC(blockBytes, newSymKey, newMacKey)
+		if err != nil {
+			return err
+		}
+
+		userlib.DatastoreSet(currentUUID, reEncryptedBlock)
+
+		currentUUID = block.NextUUID
+	}
+
+	// Eliminar invitación del recipient
+	invUUID := meta.DirectShares[recipientUsername]
+	userlib.DatastoreDelete(invUUID)
+	delete(meta.DirectShares, recipientUsername)
+
+	// Actualizar invitaciones de usuarios restantes
+	for username, invUUID := range meta.DirectShares {
+		userEncKey, ok := userlib.KeystoreGet(username + "/pke")
+		if !ok {
+			continue
+		}
+
+		newInvitation := Invitation{
+			FileMetaUUID: access.FileMetaUUID,
+			SymKey:       newSymKey,
+			MacKey:       newMacKey,
+		}
+
+		invitationBytes, err := json.Marshal(newInvitation)
+		if err != nil {
+			return err
+		}
+
+		encryptedInvitation, err := userlib.PKEEnc(userEncKey, invitationBytes)
+		if err != nil {
+			return err
+		}
+
+		signature, err := userlib.DSSign(userdata.SignKey, encryptedInvitation)
+		if err != nil {
+			return err
+		}
+
+		signedInv := SignedInvitation{
+			EncryptedData: encryptedInvitation,
+			Signature:     signature,
+		}
+
+		signedInvBytes, err := json.Marshal(signedInv)
+		if err != nil {
+			return err
+		}
+
+		userlib.DatastoreSet(invUUID, signedInvBytes)
+	}
+
+	// Re-cifrar FileMeta
+	updatedMetaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+
+	encryptedUpdatedMeta, err := encryptAndMAC(updatedMetaBytes, newSymKey, newMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(access.FileMetaUUID, encryptedUpdatedMeta)
+
+	// Actualizar nuestro FileAccess
+	access.SymKey = newSymKey
+	access.MacKey = newMacKey
+
+	updatedAccessBytes, err := json.Marshal(access)
+	if err != nil {
+		return err
+	}
+
+	encryptedUpdatedAccess, err := encryptAndMAC(updatedAccessBytes, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(accessUUID, encryptedUpdatedAccess)
+
 	return nil
 }
