@@ -121,10 +121,15 @@ type User struct {
 }
 
 // FileAccess - Puntero a un archivo en el namespace del usuario
+// Para owners: contiene las claves directamente
+// Para usuarios compartidos: contiene referencia a su invitación para obtener claves actualizadas
 type FileAccess struct {
-	FileMetaUUID uuid.UUID // Dónde está el FileMeta
-	SymKey       []byte    // Clave simétrica para cifrar/descifrar contenido
-	MacKey       []byte    // Clave para verificar integridad
+	IsOwner        bool      // Si es true, las claves están aquí; si no, hay que leer la invitación
+	FileMetaUUID   uuid.UUID // Dónde está el FileMeta
+	SymKey         []byte    // Clave simétrica (solo válida si IsOwner o recién aceptada)
+	MacKey         []byte    // Clave para verificar integridad
+	InvitationUUID uuid.UUID // UUID de la invitación (para no-owners, para refrescar claves)
+	SenderUsername string    // Quién envió la invitación (para verificar firma al refrescar)
 }
 
 // FileMeta - Metadata del archivo
