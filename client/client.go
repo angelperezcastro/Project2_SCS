@@ -645,6 +645,105 @@ func (userdata *User) createNewFile(accessUUID uuid.UUID, content []byte) error 
 	return nil
 }
 
+// overwriteFile - Sobrescribe un archivo existente
+func (userdata *User) overwriteFile(existingAccessData []byte, content []byte) error {
+	// Cargar FileAccess
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return err
+	}
+
+	accessBytes, err := decryptAndVerify(existingAccessData, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	var access FileAccess
+	err = json.Unmarshal(accessBytes, &access)
+	if err != nil {
+		return err
+	}
+
+	// Cargar FileMeta
+	encryptedMeta, ok := userlib.DatastoreGet(access.FileMetaUUID)
+	if !ok {
+		return errors.New("file metadata not found")
+	}
+
+	metaBytes, err := decryptAndVerify(encryptedMeta, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	var meta FileMeta
+	err = json.Unmarshal(metaBytes, &meta)
+	if err != nil {
+		return err
+	}
+
+	// Eliminar bloques antiguos
+	currentUUID := meta.FirstBlockUUID
+	for currentUUID != uuid.Nil {
+		encryptedBlock, ok := userlib.DatastoreGet(currentUUID)
+		if !ok {
+			break
+		}
+
+		blockBytes, err := decryptAndVerify(encryptedBlock, access.SymKey, access.MacKey)
+		if err != nil {
+			break
+		}
+
+		var block FileBlock
+		err = json.Unmarshal(blockBytes, &block)
+		if err != nil {
+			break
+		}
+
+		nextUUID := block.NextUUID
+		userlib.DatastoreDelete(currentUUID)
+		currentUUID = nextUUID
+	}
+
+	// Crear nuevo bloque
+	newBlock := FileBlock{
+		Content:  content,
+		NextUUID: uuid.Nil,
+	}
+
+	newBlockUUID := uuid.New()
+
+	newBlockBytes, err := json.Marshal(newBlock)
+	if err != nil {
+		return err
+	}
+
+	encryptedNewBlock, err := encryptAndMAC(newBlockBytes, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(newBlockUUID, encryptedNewBlock)
+
+	// Actualizar FileMeta
+	meta.FirstBlockUUID = newBlockUUID
+	meta.LastBlockUUID = newBlockUUID
+
+	updatedMetaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+
+	encryptedUpdatedMeta, err := encryptAndMAC(updatedMetaBytes, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(access.FileMetaUUID, encryptedUpdatedMeta)
+
+	return nil
+}
+
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
 	return
