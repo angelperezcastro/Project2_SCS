@@ -154,6 +154,14 @@ type SignedInvitation struct {
 	Signature     []byte
 }
 
+// HybridEncrypted - Estructura para hybrid encryption
+// RSA solo puede cifrar ~190 bytes, así que ciframos una clave simétrica con RSA
+// y luego ciframos los datos reales con esa clave simétrica
+type HybridEncrypted struct {
+	EncryptedSymKey []byte // Clave simétrica cifrada con RSA (pequeña)
+	EncryptedData   []byte // Datos cifrados con la clave simétrica (sin límite)
+}
+
 //===========================================================================================================
 //HELPER FUNCTIONS
 //===========================================================================================================
