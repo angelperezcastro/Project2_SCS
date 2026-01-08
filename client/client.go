@@ -548,29 +548,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 
 // AppendToFile - Añade contenido al final de un archivo (eficiente)
 func (userdata *User) AppendToFile(filename string, content []byte) error {
-	// Obtener FileAccess
-	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
-	if err != nil {
-		return err
-	}
-
-	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
-	if !ok {
-		return errors.New("file not found")
-	}
-
-	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
-	if err != nil {
-		return err
-	}
-
-	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
-	if err != nil {
-		return err
-	}
-
-	var access FileAccess
-	err = json.Unmarshal(accessBytes, &access)
+	access, _, err := userdata.getFileAccess(filename)
 	if err != nil {
 		return err
 	}
