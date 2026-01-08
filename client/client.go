@@ -1158,21 +1158,9 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 
 	userlib.DatastoreSet(access.FileMetaUUID, encryptedUpdatedMeta)
 
-	// Actualizar nuestro FileAccess
+	// Actualizar nuestro FileAccess con nuevas claves
 	access.SymKey = newSymKey
 	access.MacKey = newMacKey
 
-	updatedAccessBytes, err := json.Marshal(access)
-	if err != nil {
-		return err
-	}
-
-	encryptedUpdatedAccess, err := encryptAndMAC(updatedAccessBytes, accessEncKey, accessMacKey)
-	if err != nil {
-		return err
-	}
-
-	userlib.DatastoreSet(accessUUID, encryptedUpdatedAccess)
-
-	return nil
+	return userdata.saveFileAccess(access, accessUUID)
 }
