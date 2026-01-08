@@ -48,7 +48,7 @@ var _ = Describe("Client Tests", func() {
 	var bob *client.User
 	var charles *client.User
 	var doris *client.User
-	var eve *client.User
+	//var eve *client.User
 
 	var alicePhone *client.User
 	var aliceLaptop *client.User
