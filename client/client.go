@@ -570,6 +570,81 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	return content, nil
 }
 
+// createNewFile - Crea un archivo nuevo
+func (userdata *User) createNewFile(accessUUID uuid.UUID, content []byte) error {
+	// Generar claves para el archivo
+	fileSymKey := userlib.RandomBytes(16)
+	fileMacKey := userlib.RandomBytes(16)
+
+	// Crear bloque de contenido
+	block := FileBlock{
+		Content:  content,
+		NextUUID: uuid.Nil,
+	}
+
+	blockUUID := uuid.New()
+
+	blockBytes, err := json.Marshal(block)
+	if err != nil {
+		return err
+	}
+
+	encryptedBlock, err := encryptAndMAC(blockBytes, fileSymKey, fileMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(blockUUID, encryptedBlock)
+
+	// Crear FileMeta
+	meta := FileMeta{
+		OwnerUsername:  userdata.Username,
+		FirstBlockUUID: blockUUID,
+		LastBlockUUID:  blockUUID,
+		DirectShares:   make(map[string]uuid.UUID),
+	}
+
+	metaUUID := uuid.New()
+
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+
+	encryptedMeta, err := encryptAndMAC(metaBytes, fileSymKey, fileMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(metaUUID, encryptedMeta)
+
+	// Crear FileAccess
+	access := FileAccess{
+		FileMetaUUID: metaUUID,
+		SymKey:       fileSymKey,
+		MacKey:       fileMacKey,
+	}
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return err
+	}
+
+	accessBytes, err := json.Marshal(access)
+	if err != nil {
+		return err
+	}
+
+	encryptedAccess, err := encryptAndMAC(accessBytes, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(accessUUID, encryptedAccess)
+
+	return nil
+}
+
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
 	return
