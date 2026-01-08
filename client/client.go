@@ -232,10 +232,81 @@ func deriveKeys(sourceKey []byte, purpose string) (encKey []byte, macKey []byte,
 	return encKeyFull[:16], macKeyFull[:16], nil
 }
 // NOTE: The following methods have toy (insecure!) implementations.
-
+//===========================================================================================================
+//MAIN FUNCTIONS
+//===========================================================================================================
+// InitUser - Crea un nuevo usuario
 func InitUser(username string, password string) (userdataptr *User, err error) {
+	// Validar username
+	if username == "" {
+		return nil, errors.New("username cannot be empty")
+	}
+
+	// Verificar que el usuario no existe
+	_, alreadyExists := userlib.KeystoreGet(username + "/pke")
+	if alreadyExists {
+		return nil, errors.New("user already exists")
+	}
+
+	// Generar claves RSA para cifrado
+	encKey, decKey, err := userlib.PKEKeyGen()
+	if err != nil {
+		return nil, err
+	}
+
+	// Generar claves RSA para firmas
+	signKey, verifyKey, err := userlib.DSKeyGen()
+	if err != nil {
+		return nil, err
+	}
+
+	// Almacenar claves públicas en Keystore
+	err = userlib.KeystoreSet(username+"/pke", encKey)
+	if err != nil {
+		return nil, err
+	}
+
+	err = userlib.KeystoreSet(username+"/ds", verifyKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Derivar SourceKey del password
+	sourceKey := userlib.Argon2Key([]byte(password), []byte(username), 16)
+
+	// Crear struct User
 	var userdata User
 	userdata.Username = username
+	userdata.SignKey = signKey
+	userdata.DecKey = decKey
+	userdata.SourceKey = sourceKey
+
+	// Serializar User
+	userBytes, err := json.Marshal(userdata)
+	if err != nil {
+		return nil, err
+	}
+
+	// Derivar claves para cifrar User
+	userEncKey, userMacKey, err := deriveKeys(sourceKey, "user-struct")
+	if err != nil {
+		return nil, err
+	}
+
+	// Cifrar User
+	encryptedUser, err := encryptAndMAC(userBytes, userEncKey, userMacKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calcular UUID y guardar
+	userUUID, err := getUserUUID(username)
+	if err != nil {
+		return nil, err
+	}
+
+	userlib.DatastoreSet(userUUID, encryptedUser)
+
 	return &userdata, nil
 }
 
