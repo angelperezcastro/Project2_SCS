@@ -108,6 +108,10 @@ func someUsefulThings() {
 // This is the type definition for the User struct.
 // A Go struct is like a Python or Java class - it can have attributes
 // (e.g. like the Username attribute) and methods (e.g. like the StoreFile method below).
+
+//===========================================================================================================
+//DATA STRUCTURES
+//===========================================================================================================
 type User struct {
     Username  string
     SignKey   userlib.DSSignKey  // Clave privada para firmar (invitaciones)
@@ -149,6 +153,54 @@ type SignedInvitation struct {
 	Signature     []byte
 }
 
+//===========================================================================================================
+//HELPER FUNCTIONS
+//===========================================================================================================
+// encryptAndMAC - Cifra datos y añade MAC para integridad (encrypt-then-MAC)
+func encryptAndMAC(data []byte, encKey []byte, macKey []byte) ([]byte, error) {
+	// Generar IV aleatorio para cada cifrado
+	iv := userlib.RandomBytes(16)
+
+	// Cifrar (el IV se incluye en el ciphertext)
+	ciphertext := userlib.SymEnc(encKey, iv, data)
+
+	// Calcular MAC sobre el ciphertext (encrypt-then-MAC)
+	mac, err := userlib.HMACEval(macKey, ciphertext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Concatenar: ciphertext || MAC
+	result := append(ciphertext, mac...)
+	return result, nil
+}
+
+// decryptAndVerify - Verifica MAC y descifra datos
+func decryptAndVerify(data []byte, encKey []byte, macKey []byte) ([]byte, error) {
+	// El MAC tiene 64 bytes (HMAC-SHA512)
+	if len(data) < 64 {
+		return nil, errors.New("data too short")
+	}
+
+	// Separar ciphertext y MAC
+	macStart := len(data) - 64
+	ciphertext := data[:macStart]
+	providedMAC := data[macStart:]
+
+	// Verificar MAC
+	expectedMAC, err := userlib.HMACEval(macKey, ciphertext)
+	if err != nil {
+		return nil, err
+	}
+
+	if !userlib.HMACEqual(providedMAC, expectedMAC) {
+		return nil, errors.New("MAC verification failed")
+	}
+
+	// Descifrar
+	plaintext := userlib.SymDec(encKey, ciphertext)
+	return plaintext, nil
+}
 // NOTE: The following methods have toy (insecure!) implementations.
 
 func InitUser(username string, password string) (userdataptr *User, err error) {
