@@ -357,18 +357,26 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	return &userdata, nil
 }
 
+// StoreFile - Almacena un archivo (crea nuevo o sobrescribe)
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
-	storageKey, err := uuid.FromBytes(userlib.Hash([]byte(filename + userdata.Username))[:16])
+	// Calcular UUID del FileAccess
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
 	if err != nil {
 		return err
 	}
-	contentBytes, err := json.Marshal(content)
-	if err != nil {
-		return err
+
+	// Verificar si el archivo ya existe
+	existingData, exists := userlib.DatastoreGet(accessUUID)
+
+	if exists {
+		// Sobrescribir archivo existente
+		return userdata.overwriteFile(existingData, content)
+	} else {
+		// Crear nuevo archivo
+		return userdata.createNewFile(accessUUID, content)
 	}
-	userlib.DatastoreSet(storageKey, contentBytes)
-	return
 }
+
 
 func (userdata *User) AppendToFile(filename string, content []byte) error {
 	return nil
