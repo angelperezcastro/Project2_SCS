@@ -1013,31 +1013,17 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 		return errors.New("access has been revoked")
 	}
 
-	// Crear FileAccess local
+		// Crear FileAccess local (como no-owner)
 	access := FileAccess{
-		FileMetaUUID: invitation.FileMetaUUID,
-		SymKey:       invitation.SymKey,
-		MacKey:       invitation.MacKey,
+		IsOwner:        false,
+		FileMetaUUID:   invitation.FileMetaUUID,
+		SymKey:         invitation.SymKey,
+		MacKey:         invitation.MacKey,
+		InvitationUUID: invitationPtr,
+		SenderUsername: senderUsername,
 	}
 
-	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
-	if err != nil {
-		return err
-	}
-
-	accessBytes, err := json.Marshal(access)
-	if err != nil {
-		return err
-	}
-
-	encryptedAccess, err := encryptAndMAC(accessBytes, accessEncKey, accessMacKey)
-	if err != nil {
-		return err
-	}
-
-	userlib.DatastoreSet(accessUUID, encryptedAccess)
-
-	return nil
+	return userdata.saveFileAccess(&access, accessUUID)
 }
 
 // RevokeAccess - Revoca el acceso de un usuario a un archivo
