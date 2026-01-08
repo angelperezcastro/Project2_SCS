@@ -201,6 +201,36 @@ func decryptAndVerify(data []byte, encKey []byte, macKey []byte) ([]byte, error)
 	plaintext := userlib.SymDec(encKey, ciphertext)
 	return plaintext, nil
 }
+
+// getUserUUID - Calcula el UUID donde se almacena el User struct
+func getUserUUID(username string) (uuid.UUID, error) {
+	hash := userlib.Hash([]byte(username + "/user"))
+	return uuid.FromBytes(hash[:16])
+}
+
+// getFileAccessUUID - Calcula el UUID del FileAccess para un usuario y archivo
+func getFileAccessUUID(sourceKey []byte, filename string) (uuid.UUID, error) {
+	derived, err := userlib.HashKDF(sourceKey, []byte("fileaccess/"+filename))
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return uuid.FromBytes(derived[:16])
+}
+
+// deriveKeys - Deriva claves de cifrado y MAC desde una clave fuente
+func deriveKeys(sourceKey []byte, purpose string) (encKey []byte, macKey []byte, err error) {
+	encKeyFull, err := userlib.HashKDF(sourceKey, []byte(purpose+"/enc"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	macKeyFull, err := userlib.HashKDF(sourceKey, []byte(purpose+"/mac"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return encKeyFull[:16], macKeyFull[:16], nil
+}
 // NOTE: The following methods have toy (insecure!) implementations.
 
 func InitUser(username string, password string) (userdataptr *User, err error) {
