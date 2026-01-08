@@ -109,14 +109,44 @@ func someUsefulThings() {
 // A Go struct is like a Python or Java class - it can have attributes
 // (e.g. like the Username attribute) and methods (e.g. like the StoreFile method below).
 type User struct {
-	Username string
+    Username  string
+    SignKey   userlib.DSSignKey  // Clave privada para firmar (invitaciones)
+    DecKey    userlib.PKEDecKey  // Clave privada para descifrar (recibir invitaciones)
+    SourceKey []byte             // Derivada del password, para derivar otras claves
+}
 
-	// You can add other attributes here if you want! But note that in order for attributes to
-	// be included when this struct is serialized to/from JSON, they must be capitalized.
-	// On the flipside, if you have an attribute that you want to be able to access from
-	// this struct's methods, but you DON'T want that value to be included in the serialized value
-	// of this struct that's stored in datastore, then you can use a "private" variable (e.g. one that
-	// begins with a lowercase letter).
+// FileAccess - Puntero a un archivo en el namespace del usuario
+type FileAccess struct {
+	FileMetaUUID uuid.UUID // Dónde está el FileMeta
+	SymKey       []byte    // Clave simétrica para cifrar/descifrar contenido
+	MacKey       []byte    // Clave para verificar integridad
+}
+
+// FileMeta - Metadata del archivo
+type FileMeta struct {
+	OwnerUsername  string               // Quién es el dueño
+	FirstBlockUUID uuid.UUID            // Primer bloque de contenido
+	LastBlockUUID  uuid.UUID            // Último bloque (para append eficiente)
+	DirectShares   map[string]uuid.UUID // username -> InvitationUUID
+}
+
+// FileBlock - Un bloque de contenido del archivo (linked list)
+type FileBlock struct {
+	Content  []byte    // El contenido de este bloque
+	NextUUID uuid.UUID // Siguiente bloque, uuid.Nil si es el último
+}
+
+// Invitation - Información enviada al recipient para darle acceso
+type Invitation struct {
+	FileMetaUUID uuid.UUID
+	SymKey       []byte
+	MacKey       []byte
+}
+
+// SignedInvitation - Wrapper para invitación cifrada y firmada
+type SignedInvitation struct {
+	EncryptedData []byte
+	Signature     []byte
 }
 
 // NOTE: The following methods have toy (insecure!) implementations.
