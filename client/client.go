@@ -948,8 +948,8 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 		return errors.New("invalid signature")
 	}
 
-	// Descifrar invitación
-	invitationBytes, err := userlib.PKEDec(userdata.DecKey, signedInv.EncryptedData)
+	// Descifrar invitación con HYBRID DECRYPTION
+	invitationBytes, err := hybridDecrypt(userdata.DecKey, signedInv.EncryptedData)
 	if err != nil {
 		return errors.New("could not decrypt invitation")
 	}
