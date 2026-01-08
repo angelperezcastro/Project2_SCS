@@ -23,7 +23,8 @@ import (
 	// hex.EncodeToString(...) is useful for converting []byte to string
 
 	// Useful for string manipulation
-	"strings"
+	_ "strings"
+
 
 	// Useful for formatting strings (e.g. `fmt.Sprintf`).
 	"fmt"
@@ -199,6 +200,52 @@ func decryptAndVerify(data []byte, encKey []byte, macKey []byte) ([]byte, error)
 
 	// Descifrar
 	plaintext := userlib.SymDec(encKey, ciphertext)
+	return plaintext, nil
+}
+
+// hybridEncrypt - Cifra datos usando hybrid encryption (RSA + AES)
+// Esto permite cifrar datos de cualquier tamaño con una clave pública RSA
+func hybridEncrypt(publicKey userlib.PKEEncKey, plaintext []byte) ([]byte, error) {
+	// 1. Generar clave simétrica aleatoria
+	symKey := userlib.RandomBytes(16)
+
+	// 2. Cifrar la clave simétrica con RSA (esto es pequeño, ~16 bytes)
+	encryptedSymKey, err := userlib.PKEEnc(publicKey, symKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Cifrar los datos con la clave simétrica (sin límite de tamaño)
+	iv := userlib.RandomBytes(16)
+	encryptedData := userlib.SymEnc(symKey, iv, plaintext)
+
+	// 4. Empaquetar todo junto
+	hybrid := HybridEncrypted{
+		EncryptedSymKey: encryptedSymKey,
+		EncryptedData:   encryptedData,
+	}
+
+	return json.Marshal(hybrid)
+}
+
+// hybridDecrypt - Descifra datos cifrados con hybrid encryption
+func hybridDecrypt(privateKey userlib.PKEDecKey, ciphertext []byte) ([]byte, error) {
+	// 1. Deserializar la estructura
+	var hybrid HybridEncrypted
+	err := json.Unmarshal(ciphertext, &hybrid)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Descifrar la clave simétrica con RSA
+	symKey, err := userlib.PKEDec(privateKey, hybrid.EncryptedSymKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Descifrar los datos con la clave simétrica
+	plaintext := userlib.SymDec(symKey, hybrid.EncryptedData)
+
 	return plaintext, nil
 }
 
