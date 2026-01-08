@@ -378,7 +378,121 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 }
 
 
+// AppendToFile - Añade contenido al final de un archivo (eficiente)
 func (userdata *User) AppendToFile(filename string, content []byte) error {
+	// Obtener FileAccess
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
+	if err != nil {
+		return err
+	}
+
+	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
+	if !ok {
+		return errors.New("file not found")
+	}
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return err
+	}
+
+	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	var access FileAccess
+	err = json.Unmarshal(accessBytes, &access)
+	if err != nil {
+		return err
+	}
+
+	// Obtener FileMeta
+	encryptedMeta, ok := userlib.DatastoreGet(access.FileMetaUUID)
+	if !ok {
+		return errors.New("file metadata not found")
+	}
+
+	metaBytes, err := decryptAndVerify(encryptedMeta, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	var meta FileMeta
+	err = json.Unmarshal(metaBytes, &meta)
+	if err != nil {
+		return err
+	}
+
+	// Guardar UUID del último bloque actual
+	oldLastBlockUUID := meta.LastBlockUUID
+
+	// Cargar último bloque
+	encryptedLastBlock, ok := userlib.DatastoreGet(oldLastBlockUUID)
+	if !ok {
+		return errors.New("last block not found")
+	}
+
+	lastBlockBytes, err := decryptAndVerify(encryptedLastBlock, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	var lastBlock FileBlock
+	err = json.Unmarshal(lastBlockBytes, &lastBlock)
+	if err != nil {
+		return err
+	}
+
+	// Crear nuevo bloque
+	newBlockUUID := uuid.New()
+
+	newBlock := FileBlock{
+		Content:  content,
+		NextUUID: uuid.Nil,
+	}
+
+	newBlockBytes, err := json.Marshal(newBlock)
+	if err != nil {
+		return err
+	}
+
+	encryptedNewBlock, err := encryptAndMAC(newBlockBytes, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	// Actualizar último bloque para que apunte al nuevo
+	lastBlock.NextUUID = newBlockUUID
+
+	updatedLastBlockBytes, err := json.Marshal(lastBlock)
+	if err != nil {
+		return err
+	}
+
+	encryptedUpdatedLastBlock, err := encryptAndMAC(updatedLastBlockBytes, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	// Actualizar FileMeta
+	meta.LastBlockUUID = newBlockUUID
+
+	updatedMetaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+
+	encryptedUpdatedMeta, err := encryptAndMAC(updatedMetaBytes, access.SymKey, access.MacKey)
+	if err != nil {
+		return err
+	}
+
+	// Guardar todo
+	userlib.DatastoreSet(newBlockUUID, encryptedNewBlock)
+	userlib.DatastoreSet(oldLastBlockUUID, encryptedUpdatedLastBlock)
+	userlib.DatastoreSet(access.FileMetaUUID, encryptedUpdatedMeta)
+
 	return nil
 }
 
