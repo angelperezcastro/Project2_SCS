@@ -872,29 +872,8 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		return uuid.Nil, errors.New("recipient user does not exist")
 	}
 
-	// Cargar FileAccess
-	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
-	if !ok {
-		return uuid.Nil, errors.New("file not found")
-	}
-
-	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	var access FileAccess
-	err = json.Unmarshal(accessBytes, &access)
+	// Obtener acceso al archivo
+	access, _, err := userdata.getFileAccess(filename)
 	if err != nil {
 		return uuid.Nil, err
 	}
