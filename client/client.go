@@ -744,9 +744,116 @@ func (userdata *User) overwriteFile(existingAccessData []byte, content []byte) e
 	return nil
 }
 
+// CreateInvitation - Crea una invitación para compartir un archivo
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
-	return
+
+	// Verificar que recipient existe
+	recipientEncKey, ok := userlib.KeystoreGet(recipientUsername + "/pke")
+	if !ok {
+		return uuid.Nil, errors.New("recipient user does not exist")
+	}
+
+	// Cargar FileAccess
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
+	if !ok {
+		return uuid.Nil, errors.New("file not found")
+	}
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	var access FileAccess
+	err = json.Unmarshal(accessBytes, &access)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// Cargar FileMeta
+	encryptedMeta, ok := userlib.DatastoreGet(access.FileMetaUUID)
+	if !ok {
+		return uuid.Nil, errors.New("file metadata not found")
+	}
+
+	metaBytes, err := decryptAndVerify(encryptedMeta, access.SymKey, access.MacKey)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	var meta FileMeta
+	err = json.Unmarshal(metaBytes, &meta)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// Crear Invitation
+	invitation := Invitation{
+		FileMetaUUID: access.FileMetaUUID,
+		SymKey:       access.SymKey,
+		MacKey:       access.MacKey,
+	}
+
+	invitationBytes, err := json.Marshal(invitation)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// Cifrar con clave pública del recipient
+	encryptedInvitation, err := userlib.PKEEnc(recipientEncKey, invitationBytes)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// Firmar
+	signature, err := userlib.DSSign(userdata.SignKey, encryptedInvitation)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// Empaquetar
+	signedInv := SignedInvitation{
+		EncryptedData: encryptedInvitation,
+		Signature:     signature,
+	}
+
+	signedInvBytes, err := json.Marshal(signedInv)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	invitationUUID := uuid.New()
+	userlib.DatastoreSet(invitationUUID, signedInvBytes)
+
+	// Registrar en DirectShares si somos owner
+	if meta.OwnerUsername == userdata.Username {
+		meta.DirectShares[recipientUsername] = invitationUUID
+
+		updatedMetaBytes, err := json.Marshal(meta)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		encryptedUpdatedMeta, err := encryptAndMAC(updatedMetaBytes, access.SymKey, access.MacKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		userlib.DatastoreSet(access.FileMetaUUID, encryptedUpdatedMeta)
+	}
+
+	return invitationUUID, nil
 }
 
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
