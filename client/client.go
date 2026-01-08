@@ -818,6 +818,14 @@ func (userdata *User) overwriteFile(existingAccessData []byte, content []byte) e
 		return err
 	}
 
+	// Si no es owner, refrescar claves
+	if !access.IsOwner {
+		err = userdata.refreshAccessKeys(&access)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Cargar FileMeta
 	encryptedMeta, ok := userlib.DatastoreGet(access.FileMetaUUID)
 	if !ok {
