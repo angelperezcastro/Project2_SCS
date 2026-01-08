@@ -496,17 +496,78 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	return nil
 }
 
+// LoadFile - Carga el contenido de un archivo
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	storageKey, err := uuid.FromBytes(userlib.Hash([]byte(filename + userdata.Username))[:16])
+	// Obtener FileAccess
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
 	if err != nil {
 		return nil, err
 	}
-	dataJSON, ok := userlib.DatastoreGet(storageKey)
+
+	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
 	if !ok {
-		return nil, errors.New(strings.ToTitle("file not found"))
+		return nil, errors.New("file not found")
 	}
-	err = json.Unmarshal(dataJSON, &content)
-	return content, err
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return nil, err
+	}
+
+	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var access FileAccess
+	err = json.Unmarshal(accessBytes, &access)
+	if err != nil {
+		return nil, err
+	}
+
+	// Obtener FileMeta
+	encryptedMeta, ok := userlib.DatastoreGet(access.FileMetaUUID)
+	if !ok {
+		return nil, errors.New("file metadata not found")
+	}
+
+	metaBytes, err := decryptAndVerify(encryptedMeta, access.SymKey, access.MacKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var meta FileMeta
+	err = json.Unmarshal(metaBytes, &meta)
+	if err != nil {
+		return nil, err
+	}
+
+	// Recorrer y concatenar bloques
+	content = []byte{}
+	currentUUID := meta.FirstBlockUUID
+
+	for currentUUID != uuid.Nil {
+		encryptedBlock, ok := userlib.DatastoreGet(currentUUID)
+		if !ok {
+			return nil, errors.New("file block not found")
+		}
+
+		blockBytes, err := decryptAndVerify(encryptedBlock, access.SymKey, access.MacKey)
+		if err != nil {
+			return nil, err
+		}
+
+		var block FileBlock
+		err = json.Unmarshal(blockBytes, &block)
+		if err != nil {
+			return nil, err
+		}
+
+		content = append(content, block.Content...)
+		currentUUID = block.NextUUID
+	}
+
+	return content, nil
 }
 
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
