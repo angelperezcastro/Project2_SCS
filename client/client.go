@@ -1114,7 +1114,8 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 			return err
 		}
 
-		encryptedInvitation, err := userlib.PKEEnc(userEncKey, invitationBytes)
+		// Usar hybrid encryption aquí también
+		encryptedInvitation, err := hybridEncrypt(userEncKey, invitationBytes)
 		if err != nil {
 			return err
 		}
