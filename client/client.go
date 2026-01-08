@@ -856,7 +856,90 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	return invitationUUID, nil
 }
 
+// AcceptInvitation - Acepta una invitación para acceder a un archivo
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
+	// Verificar que filename no existe ya
+	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
+	if err != nil {
+		return err
+	}
+
+	_, exists := userlib.DatastoreGet(accessUUID)
+	if exists {
+		return errors.New("filename already exists")
+	}
+
+	// Obtener clave de verificación del sender
+	senderVerifyKey, ok := userlib.KeystoreGet(senderUsername + "/ds")
+	if !ok {
+		return errors.New("sender does not exist")
+	}
+
+	// Cargar invitación
+	signedInvBytes, ok := userlib.DatastoreGet(invitationPtr)
+	if !ok {
+		return errors.New("invitation not found")
+	}
+
+	var signedInv SignedInvitation
+	err = json.Unmarshal(signedInvBytes, &signedInv)
+	if err != nil {
+		return err
+	}
+
+	// Verificar firma
+	err = userlib.DSVerify(senderVerifyKey, signedInv.EncryptedData, signedInv.Signature)
+	if err != nil {
+		return errors.New("invalid signature")
+	}
+
+	// Descifrar invitación
+	invitationBytes, err := userlib.PKEDec(userdata.DecKey, signedInv.EncryptedData)
+	if err != nil {
+		return errors.New("could not decrypt invitation")
+	}
+
+	var invitation Invitation
+	err = json.Unmarshal(invitationBytes, &invitation)
+	if err != nil {
+		return err
+	}
+
+	// Verificar que la invitación es válida
+	encryptedMeta, ok := userlib.DatastoreGet(invitation.FileMetaUUID)
+	if !ok {
+		return errors.New("file no longer exists")
+	}
+
+	_, err = decryptAndVerify(encryptedMeta, invitation.SymKey, invitation.MacKey)
+	if err != nil {
+		return errors.New("access has been revoked")
+	}
+
+	// Crear FileAccess local
+	access := FileAccess{
+		FileMetaUUID: invitation.FileMetaUUID,
+		SymKey:       invitation.SymKey,
+		MacKey:       invitation.MacKey,
+	}
+
+	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
+	if err != nil {
+		return err
+	}
+
+	accessBytes, err := json.Marshal(access)
+	if err != nil {
+		return err
+	}
+
+	encryptedAccess, err := encryptAndMAC(accessBytes, accessEncKey, accessMacKey)
+	if err != nil {
+		return err
+	}
+
+	userlib.DatastoreSet(accessUUID, encryptedAccess)
+
 	return nil
 }
 
