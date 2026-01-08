@@ -865,8 +865,8 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		return uuid.Nil, err
 	}
 
-	// Cifrar con clave pública del recipient
-	encryptedInvitation, err := userlib.PKEEnc(recipientEncKey, invitationBytes)
+	// Cifrar con HYBRID ENCRYPTION (soluciona el problema de RSA message too long)
+	encryptedInvitation, err := hybridEncrypt(recipientEncKey, invitationBytes)
 	if err != nil {
 		return uuid.Nil, err
 	}
