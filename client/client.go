@@ -1028,29 +1028,8 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 
 // RevokeAccess - Revoca el acceso de un usuario a un archivo
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
-	// Cargar FileAccess
-	accessUUID, err := getFileAccessUUID(userdata.SourceKey, filename)
-	if err != nil {
-		return err
-	}
-
-	encryptedAccess, ok := userlib.DatastoreGet(accessUUID)
-	if !ok {
-		return errors.New("file not found")
-	}
-
-	accessEncKey, accessMacKey, err := deriveKeys(userdata.SourceKey, "fileaccess")
-	if err != nil {
-		return err
-	}
-
-	accessBytes, err := decryptAndVerify(encryptedAccess, accessEncKey, accessMacKey)
-	if err != nil {
-		return err
-	}
-
-	var access FileAccess
-	err = json.Unmarshal(accessBytes, &access)
+	// Obtener acceso al archivo
+	access, accessUUID, err := userdata.getFileAccess(filename)
 	if err != nil {
 		return err
 	}
